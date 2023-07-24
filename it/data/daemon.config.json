@@ -2,7 +2,7 @@
   "anchor": {},
   "http-api": {
     "hostname": "0.0.0.0",
-    "port": 7071,
+    "port": 7007,
     "admin-dids": [
       "did:key:z6MkeqCTPhHPVg3HaAAtsR7vZ6FXkAHPXEbTJs7Y4CQABV9Z"
     ]

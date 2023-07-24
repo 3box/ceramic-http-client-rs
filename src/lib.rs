@@ -6,35 +6,39 @@
 /// Structures for working with ceramic http api
 pub mod api;
 mod model_definition;
+mod query;
 
 use ceramic_event::{
-    Base64String, Cid, DagCborEncoded, DidDocument, EventArgs, MultiBase36String, StreamId,
+    Base64String, Cid, DagCborEncoded, EventArgs, Jws, MultiBase36String, Signer, StreamId,
     StreamIdType,
 };
 use serde::{de::DeserializeOwned, Serialize};
 use std::str::FromStr;
 
+use crate::api::ModelData;
 pub use ceramic_event;
 pub use model_definition::{
     GetRootSchema, ModelAccountRelation, ModelDefinition, ModelRelationDefinition,
     ModelViewDefinition,
 };
+pub use query::*;
 pub use schemars;
 
 /// Client for interacting with the Ceramic HTTP API
 #[derive(Clone, Debug)]
-pub struct CeramicHttpClient {
-    signer: DidDocument,
-    private_key: String,
+pub struct CeramicHttpClient<S: Signer> {
+    signer: S,
 }
 
-impl CeramicHttpClient {
+impl<S: Signer> CeramicHttpClient<S> {
     /// Create a new client, using a signer and private key
-    pub fn new(signer: DidDocument, private_key: &str) -> Self {
-        Self {
-            signer,
-            private_key: private_key.to_string(),
-        }
+    pub fn new(signer: S) -> Self {
+        Self { signer }
+    }
+
+    /// Get the signer for this client
+    pub fn signer(&self) -> &S {
+        &self.signer
     }
 
     /// Get the streams endpoint
@@ -47,13 +51,28 @@ impl CeramicHttpClient {
         "/api/v0/commits"
     }
 
+    /// Get the collection endpoint
+    pub fn collection_endpoint(&self) -> &'static str {
+        "/api/v0/collection"
+    }
+
+    /// Get the code endpoint
+    pub fn admin_code_endpoint(&self) -> &'static str {
+        "/api/v0/admin/getCode"
+    }
+
+    /// Get the index endpoint
+    pub fn index_endpoint(&self) -> &'static str {
+        "/api/v0/admin/modelData"
+    }
+
     /// Create a serde compatible request for model creation
     pub async fn create_model_request(
         &self,
         model: &ModelDefinition,
     ) -> anyhow::Result<api::CreateRequest<Base64String>> {
         let args = EventArgs::new(&self.signer);
-        let commit = args.init_with_data(&model, &self.private_key).await?;
+        let commit = args.init_with_data(&model).await?;
         let controllers: Vec<_> = args.controllers().map(|c| c.id.clone()).collect();
         let data = Base64String::from(commit.linked_block.as_ref());
         let model = Base64String::from(args.parent().to_vec()?);
@@ -72,6 +91,26 @@ impl CeramicHttpClient {
                 cacao_block: None,
             },
         })
+    }
+
+    /// Create a serde compatible request for model indexing
+    pub async fn create_index_model_request(
+        &self,
+        model_id: &StreamId,
+        code: &str,
+    ) -> anyhow::Result<api::AdminApiRequest> {
+        let data = api::IndexModelData {
+            models: vec![ModelData {
+                model: model_id.clone(),
+            }],
+        };
+        let req = api::AdminApiPayload {
+            code: code.to_string(),
+            request_path: self.index_endpoint().to_string(),
+            request_body: data,
+        };
+        let jws = Jws::for_data(&self.signer, &req).await?;
+        api::AdminApiRequest::try_from(jws)
     }
 
     /// Create a serde compatible request for a single instance per account creation of a model
@@ -112,7 +151,7 @@ impl CeramicHttpClient {
             anyhow::bail!("StreamId was not a model");
         }
         let args = EventArgs::new_with_parent(&self.signer, model_id);
-        let commit = args.init_with_data(&data, &self.private_key).await?;
+        let commit = args.init_with_data(&data).await?;
         let controllers: Vec<_> = args.controllers().map(|c| c.id.clone()).collect();
         let data = Base64String::from(commit.linked_block.as_ref());
         let model = Base64String::from(model_id.to_vec()?);
@@ -145,9 +184,7 @@ impl CeramicHttpClient {
         if let Some(tip) = get.state.as_ref().and_then(|s| s.log.last()) {
             let tip = Cid::from_str(tip.cid.as_ref())?;
             let args = EventArgs::new_with_parent(&self.signer, model);
-            let commit = args
-                .update(&get.stream_id.cid, &tip, &self.private_key, &patch)
-                .await?;
+            let commit = args.update(&get.stream_id.cid, &tip, &patch).await?;
             let controllers: Vec<_> = args.controllers().map(|c| c.id.clone()).collect();
             let data = Base64String::from(commit.linked_block.as_ref());
             let model = Base64String::from(model.to_vec()?);
@@ -187,28 +224,52 @@ impl CeramicHttpClient {
         };
         self.create_update_request(model, get, diff).await
     }
+
+    /// Create a serde compatible request to query model instances
+    pub async fn create_query_request(
+        &self,
+        model: &StreamId,
+        query: Option<FilterQuery>,
+        pagination: api::Pagination,
+    ) -> anyhow::Result<api::QueryRequest> {
+        Ok(api::QueryRequest {
+            model: model.clone(),
+            account: self.signer.id().id.clone(),
+            query,
+            pagination,
+        })
+    }
 }
 
 /// Remote HTTP Functionality
 #[cfg(feature = "remote")]
 pub mod remote {
     use super::*;
+    use crate::api::Pagination;
+    use crate::query::FilterQuery;
+    pub use url::{ParseError, Url};
 
+    #[derive(Clone)]
     /// Ceramic remote http client
-    pub struct CeramicRemoteHttpClient {
-        cli: CeramicHttpClient,
+    pub struct CeramicRemoteHttpClient<S: Signer> {
+        cli: CeramicHttpClient<S>,
         remote: reqwest::Client,
-        url: url::Url,
+        url: Url,
     }
 
-    impl CeramicRemoteHttpClient {
+    impl<S: Signer> CeramicRemoteHttpClient<S> {
         /// Create a new ceramic remote http client for a signer, private key, and url
-        pub fn new(signer: DidDocument, private_key: &str, remote: url::Url) -> Self {
+        pub fn new(signer: S, remote: Url) -> Self {
             Self {
-                cli: CeramicHttpClient::new(signer, private_key),
+                cli: CeramicHttpClient::new(signer),
                 remote: reqwest::Client::new(),
                 url: remote,
             }
+        }
+
+        /// Access the underlying client
+        pub fn client(&self) -> &CeramicHttpClient<S> {
+            &self.cli
         }
 
         /// Utility function to get a url for this client's base url, given a path
@@ -229,6 +290,33 @@ pub mod remote {
                 .json()
                 .await?;
             Ok(resp.resolve("create_model")?.stream_id)
+        }
+
+        /// Index a model on the remote ceramic
+        pub async fn index_model(&self, model_id: &StreamId) -> anyhow::Result<()> {
+            let resp: api::AdminCodeResponse = self
+                .remote
+                .get(self.url_for_path(self.cli.admin_code_endpoint())?)
+                .send()
+                .await?
+                .json()
+                .await?;
+            let req = self
+                .cli
+                .create_index_model_request(model_id, &resp.code)
+                .await?;
+            let resp = self
+                .remote
+                .post(self.url_for_path(self.cli.index_endpoint())?)
+                .json(&req)
+                .send()
+                .await?;
+            if resp.status().is_success() {
+                Ok(())
+            } else {
+                println!("{}", resp.text().await?);
+                Ok(())
+            }
         }
 
         /// Create an instance of a model that allows a single instance on the remote ceramic
@@ -328,6 +416,53 @@ pub mod remote {
                 Err(anyhow::anyhow!("No commits for stream {}", stream_id))
             }
         }
+
+        /// Query for documents, optionally matching a filter
+        pub async fn query(
+            &self,
+            model_id: &StreamId,
+            query: Option<FilterQuery>,
+            pagination: Pagination,
+        ) -> anyhow::Result<api::QueryResponse> {
+            let req = self
+                .cli
+                .create_query_request(model_id, query, pagination)
+                .await?;
+            let endpoint = self.url_for_path(self.cli.collection_endpoint())?;
+            let resp = self
+                .remote
+                .post(endpoint)
+                .json(&req)
+                .send()
+                .await?
+                .json()
+                .await?;
+            Ok(resp)
+        }
+
+        /// Query for documents matching a filter, deserialized to a serde compatible type
+        pub async fn query_as<T: DeserializeOwned>(
+            &self,
+            model_id: &StreamId,
+            query: Option<FilterQuery>,
+            pagination: Pagination,
+        ) -> anyhow::Result<api::TypedQueryResponse<T>> {
+            let resp = self.query(model_id, query, pagination).await?;
+            let try_docs: Result<Vec<_>, _> = resp
+                .edges
+                .into_iter()
+                .map(|edge| {
+                    serde_json::from_value(edge.node.content).map(|doc| api::TypedQueryDocument {
+                        document: doc,
+                        commits: edge.node.log,
+                    })
+                })
+                .collect();
+            Ok(api::TypedQueryResponse {
+                documents: try_docs?,
+                page_info: resp.page_info,
+            })
+        }
     }
 }
 
@@ -335,10 +470,14 @@ pub mod remote {
 pub mod tests {
     use super::remote::*;
     use super::*;
+    use crate::api::Pagination;
     use crate::model_definition::{GetRootSchema, ModelAccountRelation, ModelDefinition};
+    use crate::query::{FilterQuery, OperationFilter};
+    use ceramic_event::{DidDocument, JwkSigner};
     use json_patch::ReplaceOperation;
     use schemars::JsonSchema;
     use serde::{Deserialize, Serialize};
+    use std::collections::HashMap;
     use std::time::Duration;
 
     // See https://github.com/ajv-validator/ajv-formats for information on valid formats
@@ -356,29 +495,30 @@ pub mod tests {
 
     pub fn ceramic_url() -> url::Url {
         let u =
-            std::env::var("CERAMIC_URL").unwrap_or_else(|_| "http://localhost:7071".to_string());
+            std::env::var("CERAMIC_URL").unwrap_or_else(|_| "http://localhost:7007".to_string());
         url::Url::parse(&u).unwrap()
     }
 
-    pub fn did() -> DidDocument {
+    pub async fn signer() -> JwkSigner {
         let s = std::env::var("DID_DOCUMENT").unwrap_or_else(|_| {
             "did:key:z6MkeqCTPhHPVg3HaAAtsR7vZ6FXkAHPXEbTJs7Y4CQABV9Z".to_string()
         });
-        DidDocument::new(&s)
+        JwkSigner::new(
+            DidDocument::new(&s),
+            &std::env::var("DID_PRIVATE_KEY").unwrap(),
+        )
+        .await
+        .unwrap()
     }
 
-    pub fn did_private_key() -> String {
-        std::env::var("DID_PRIVATE_KEY").unwrap()
-    }
-
-    pub async fn create_model(cli: &CeramicRemoteHttpClient) -> StreamId {
+    pub async fn create_model(cli: &CeramicRemoteHttpClient<JwkSigner>) -> StreamId {
         let model = ModelDefinition::new::<Ball>("TestBall", ModelAccountRelation::List).unwrap();
         cli.create_model(&model).await.unwrap()
     }
 
     #[tokio::test]
     async fn should_create_model() {
-        let ceramic = CeramicRemoteHttpClient::new(did(), &did_private_key(), ceramic_url());
+        let ceramic = CeramicRemoteHttpClient::new(signer().await, ceramic_url());
         let model = ModelDefinition::new::<Ball>("TestBall", ModelAccountRelation::List).unwrap();
         ceramic.create_model(&model).await.unwrap();
     }
@@ -392,14 +532,13 @@ pub mod tests {
 
     #[tokio::test]
     async fn should_create_and_update_list() {
-        let d = did();
-        let ceramic = CeramicRemoteHttpClient::new(d.clone(), &did_private_key(), ceramic_url());
+        let ceramic = CeramicRemoteHttpClient::new(signer().await, ceramic_url());
         let model = create_model(&ceramic).await;
         let stream_id = ceramic
             .create_list_instance(
                 &model,
                 &Ball {
-                    creator: d.id.to_string(),
+                    creator: ceramic.client().signer().id().id.clone(),
                     radius: 1,
                     red: 2,
                     green: 3,
@@ -448,14 +587,13 @@ pub mod tests {
 
     #[tokio::test]
     async fn should_create_and_replace_list() {
-        let d = did();
-        let ceramic = CeramicRemoteHttpClient::new(d.clone(), &did_private_key(), ceramic_url());
+        let ceramic = CeramicRemoteHttpClient::new(signer().await, ceramic_url());
         let model = create_model(&ceramic).await;
         let stream_id = ceramic
             .create_list_instance(
                 &model,
                 &Ball {
-                    creator: d.id.to_string(),
+                    creator: ceramic.client().signer().id().id.clone(),
                     radius: 1,
                     red: 2,
                     green: 3,
@@ -469,7 +607,7 @@ pub mod tests {
         tokio::time::sleep(Duration::from_secs(1)).await;
 
         let replace = Ball {
-            creator: d.id.to_string(),
+            creator: ceramic.client().signer().id().id.clone(),
             radius: 1,
             red: 5,
             green: 3,
@@ -485,7 +623,7 @@ pub mod tests {
         tokio::time::sleep(Duration::from_secs(1)).await;
 
         let replace = Ball {
-            creator: d.id.to_string(),
+            creator: ceramic.client().signer().id().id.clone(),
             radius: 1,
             red: 0,
             green: 3,
@@ -501,5 +639,48 @@ pub mod tests {
 
         let get_resp: Ball = ceramic.get_as(&stream_id).await.unwrap();
         assert_eq!(get_resp, post_resp);
+    }
+
+    #[tokio::test]
+    async fn should_query_models() {
+        let ceramic = CeramicRemoteHttpClient::new(signer().await, ceramic_url());
+        let model = create_model(&ceramic).await;
+        ceramic.index_model(&model).await.unwrap();
+        let _instance1 = ceramic
+            .create_list_instance(
+                &model,
+                &Ball {
+                    creator: ceramic.client().signer().id().id.clone(),
+                    radius: 1,
+                    red: 2,
+                    green: 3,
+                    blue: 4,
+                },
+            )
+            .await
+            .unwrap();
+
+        let _instance2 = ceramic
+            .create_list_instance(
+                &model,
+                &Ball {
+                    creator: ceramic.client().signer().id().id.clone(),
+                    radius: 2,
+                    red: 3,
+                    green: 4,
+                    blue: 5,
+                },
+            )
+            .await
+            .unwrap();
+
+        let mut where_filter = HashMap::new();
+        where_filter.insert("blue".to_string(), OperationFilter::EqualTo(5.into()));
+        let filter = FilterQuery::Where(where_filter);
+        let res = ceramic
+            .query(&model, Some(filter), Pagination::default())
+            .await
+            .unwrap();
+        assert_eq!(res.edges.len(), 1);
     }
 }

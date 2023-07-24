@@ -2,8 +2,8 @@
 version: '3'
 services:
   ceramic-service:
-    image: ceramicnetwork/js-ceramic
+    image: ceramicnetwork/js-ceramic:2.35.0-rc.0
     volumes:
       - ./data:/root/.ceramic
     ports:
-      - 7071:7071
+      - 7007:7007

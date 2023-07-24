@@ -1,10 +1,14 @@
+use crate::query::FilterQuery;
 use ceramic_event::{
-    Base64String, Jws, MultiBase32String, MultiBase36String, StreamId, StreamIdType,
+    Base64String, Base64UrlString, Jws, MultiBase32String, MultiBase36String, StreamId,
+    StreamIdType,
 };
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 
 /// Header for block data
 #[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct BlockHeader {
     /// Family that block belongs to
     pub family: String,
@@ -62,6 +66,7 @@ pub struct UpdateRequest {
 
 /// Log entry for stream
 #[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct StateLog {
     /// CID for stream
     pub cid: MultiBase36String,
@@ -69,6 +74,7 @@ pub struct StateLog {
 
 /// Metadata for stream
 #[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct Metadata {
     /// Controllers for stream
     pub controllers: Vec<String>,
@@ -78,9 +84,10 @@ pub struct Metadata {
 
 /// Current state of stream
 #[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct StreamState {
     /// Content of stream
-    pub content: serde_json::Value,
+    pub content: Value,
     /// Log of stream
     pub log: Vec<StateLog>,
     /// Metadata for stream
@@ -89,9 +96,9 @@ pub struct StreamState {
 
 /// Response from request against streams endpoint
 #[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct StreamsResponse {
     /// ID of stream requested
-    #[serde(rename = "streamId")]
     pub stream_id: StreamId,
     /// State of stream
     pub state: Option<StreamState>,
@@ -124,6 +131,7 @@ impl StreamsResponseOrError {
 
 /// Json wrapper around jws
 #[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct JwsValue {
     /// Jws for a specific commit
     pub jws: Jws,
@@ -131,6 +139,7 @@ pub struct JwsValue {
 
 /// Commit for a specific stream
 #[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct Commit {
     /// Commit id
     pub cid: MultiBase36String,
@@ -140,10 +149,214 @@ pub struct Commit {
 
 /// Response from commits endpoint
 #[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct CommitsResponse {
     /// ID of stream for commit
-    #[serde(rename = "streamId")]
     pub stream_id: StreamId,
     /// Commits of stream
     pub commits: Vec<Commit>,
+}
+
+/// Model data for indexing
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ModelData {
+    /// Model id to index
+    #[serde(rename = "streamID")]
+    pub model: StreamId,
+}
+
+/// Model data for indexing
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct IndexModelData {
+    /// Models to index
+    #[serde(rename = "modelData")]
+    pub models: Vec<ModelData>,
+}
+
+/// Response from call to admin api /getCode
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AdminCodeResponse {
+    /// Generated code
+    pub code: String,
+}
+
+/// JWS Info for Admin request
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AdminApiPayload<T: Serialize> {
+    /// Admin access code from /getCode request
+    pub code: String,
+    /// Admin path request is against
+    pub request_path: String,
+    /// Body of request
+    pub request_body: T,
+}
+
+/// Request against admin api
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AdminApiRequest {
+    jws: String,
+}
+
+impl TryFrom<Jws> for AdminApiRequest {
+    type Error = anyhow::Error;
+    fn try_from(value: Jws) -> Result<Self, Self::Error> {
+        let maybe_sig = value
+            .signatures
+            .first()
+            .and_then(|sig| sig.protected.as_ref().map(|p| (&sig.signature, p)));
+        if let Some((sig, protected)) = &maybe_sig {
+            let sig = format!("{}.{}.{}", protected, value.payload, sig);
+            Ok(Self { jws: sig })
+        } else {
+            anyhow::bail!("Invalid jws, no signatures")
+        }
+    }
+}
+
+/// Pagination for query
+#[derive(Debug, Serialize)]
+#[serde(untagged, rename_all = "camelCase")]
+pub enum Pagination {
+    /// Paginate forward
+    First {
+        /// Number of results to return
+        first: u32,
+        /// Point to start query from
+        #[serde(skip_serializing_if = "Option::is_none")]
+        after: Option<Base64UrlString>,
+    },
+    /// Paginate backwards
+    Last {
+        /// Number of results to return
+        last: u32,
+        /// Point to start query from
+        #[serde(skip_serializing_if = "Option::is_none")]
+        before: Option<Base64UrlString>,
+    },
+}
+
+impl Default for Pagination {
+    fn default() -> Self {
+        Self::First {
+            first: 100,
+            after: None,
+        }
+    }
+}
+
+/// Request to query
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct QueryRequest {
+    /// Model to query documents for
+    pub model: StreamId,
+    /// Account making query
+    pub account: String,
+    /// Filters to use
+    #[serde(rename = "queryFilters", skip_serializing_if = "Option::is_none")]
+    pub query: Option<FilterQuery>,
+    /// Pagination
+    #[serde(flatten)]
+    pub pagination: Pagination,
+}
+
+/// Node returned from query
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct QueryNode {
+    /// Content of node
+    pub content: Value,
+    /// Commits for stream
+    pub log: Vec<Commit>,
+}
+
+/// Edge returned from query
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct QueryEdge {
+    /// Cursor for edge
+    pub cursor: Base64UrlString,
+    /// Underlying node
+    pub node: QueryNode,
+}
+
+/// Info about query pages
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PageInfo {
+    /// Whether next page exists
+    pub has_next_page: bool,
+    /// Whether previous page exists
+    pub has_previous_page: bool,
+    /// Cursor for next page
+    pub end_cursor: Base64UrlString,
+    /// Cursor for previous page
+    pub start_cursor: Base64UrlString,
+}
+
+/// Response to query
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct QueryResponse {
+    /// Edges of query
+    pub edges: Vec<QueryEdge>,
+    /// Pagination info
+    pub page_info: PageInfo,
+}
+
+/// Typed response to query
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TypedQueryDocument<T> {
+    /// Document extracted from content
+    pub document: T,
+    /// All commits for underlying stream
+    pub commits: Vec<Commit>,
+}
+
+/// Typed response to query
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TypedQueryResponse<T> {
+    /// Documents from query
+    pub documents: Vec<TypedQueryDocument<T>>,
+    /// Pagination info
+    pub page_info: PageInfo,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::OperationFilter;
+    use std::collections::HashMap;
+    use std::str::FromStr;
+
+    #[test]
+    fn should_serialize_query_request() {
+        let mut where_filter = HashMap::new();
+        where_filter.insert(
+            "id".to_string(),
+            OperationFilter::EqualTo("1".to_string().into()),
+        );
+        let filter = FilterQuery::Where(where_filter);
+        let req = QueryRequest {
+            model: StreamId::from_str(
+                "kjzl6hvfrbw6c8apa5yce6ah3fsz9sgrh6upniy0tz8z76gdm169ds3tf8c051t",
+            )
+            .unwrap(),
+            account: "test".to_string(),
+            query: Some(filter),
+            pagination: Pagination::default(),
+        };
+        let json = serde_json::to_string(&req).unwrap();
+        assert_eq!(
+            &json,
+            r#"{"model":"kjzl6hvfrbw6c8apa5yce6ah3fsz9sgrh6upniy0tz8z76gdm169ds3tf8c051t","account":"test","queryFilters":{"where":{"id":{"equalTo":"1"}}},"first":100}"#
+        );
+    }
 }
