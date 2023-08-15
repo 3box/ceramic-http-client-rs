@@ -126,7 +126,7 @@ impl<S: Signer> CeramicHttpClient<S> {
         let controllers: Vec<_> = args.controllers().map(|c| c.id.clone()).collect();
         let model = Base64String::from(model_id.to_vec()?);
         Ok(api::CreateRequest {
-            r#type: StreamIdType::Document,
+            r#type: StreamIdType::ModelInstanceDocument,
             block: api::BlockData {
                 header: api::BlockHeader {
                     family: "test".to_string(),
@@ -156,7 +156,7 @@ impl<S: Signer> CeramicHttpClient<S> {
         let data = Base64String::from(commit.linked_block.as_ref());
         let model = Base64String::from(model_id.to_vec()?);
         Ok(api::CreateRequest {
-            r#type: StreamIdType::Document,
+            r#type: StreamIdType::ModelInstanceDocument,
             block: api::BlockData {
                 header: api::BlockHeader {
                     family: "test".to_string(),
@@ -190,7 +190,7 @@ impl<S: Signer> CeramicHttpClient<S> {
             let model = Base64String::from(model.to_vec()?);
             let stream = MultiBase36String::try_from(&get.stream_id)?;
             Ok(api::UpdateRequest {
-                r#type: StreamIdType::Document,
+                r#type: StreamIdType::ModelInstanceDocument,
                 block: api::BlockData {
                     header: api::BlockHeader {
                         family: "test".to_string(),
@@ -314,8 +314,7 @@ pub mod remote {
             if resp.status().is_success() {
                 Ok(())
             } else {
-                println!("{}", resp.text().await?);
-                Ok(())
+                anyhow::bail!("{}", resp.text().await?);
             }
         }
 
