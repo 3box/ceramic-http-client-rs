@@ -12,7 +12,7 @@ use ceramic_event::{
     Base64String, Cid, DagCborEncoded, EventArgs, Jws, MultiBase36String, Signer, StreamId,
     StreamIdType,
 };
-use serde::{de::DeserializeOwned, Serialize};
+use serde::Serialize;
 use std::str::FromStr;
 
 use crate::api::ModelData;
@@ -247,6 +247,7 @@ pub mod remote {
     use super::*;
     use crate::api::Pagination;
     use crate::query::FilterQuery;
+    use serde::de::DeserializeOwned;
     pub use url::{ParseError, Url};
 
     #[derive(Clone)]
