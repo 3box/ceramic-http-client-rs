@@ -66,6 +66,11 @@ impl<S: Signer> CeramicHttpClient<S> {
         "/api/v0/admin/modelData"
     }
 
+    /// Get the healthcheck endpoint
+    pub fn healthcheck_endpoint(&self) -> &'static str {
+        "/api/v0/node/healthcheck"
+    }
+
     /// Create a serde compatible request for model creation
     pub async fn create_model_request(
         &self,
@@ -238,6 +243,11 @@ impl<S: Signer> CeramicHttpClient<S> {
             query,
             pagination,
         })
+    }
+
+    /// Create a serde compatible request to check node health
+    pub async fn create_healthcheck_request(&self) -> anyhow::Result<api::HealthcheckRequest> {
+        Ok(api::HealthcheckRequest {})
     }
 }
 
@@ -462,6 +472,20 @@ pub mod remote {
                 documents: try_docs?,
                 page_info: resp.page_info,
             })
+        }
+
+        /// Check Ceramic node health
+        pub async fn healthcheck(&self) -> anyhow::Result<String> {
+            let req = self.cli.create_healthcheck_request().await?;
+            let resp = self
+                .remote
+                .get(self.url_for_path(self.cli.healthcheck_endpoint())?)
+                .json(&req)
+                .send()
+                .await?
+                .text()
+                .await?;
+            Ok(resp)
         }
     }
 }

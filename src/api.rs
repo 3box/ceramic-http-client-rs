@@ -329,6 +329,10 @@ pub struct TypedQueryResponse<T> {
     pub page_info: PageInfo,
 }
 
+/// Healthcheck request for http api
+#[derive(Serialize)]
+pub struct HealthcheckRequest {}
+
 #[cfg(test)]
 mod tests {
     use super::*;
