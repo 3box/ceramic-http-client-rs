@@ -175,6 +175,18 @@ pub struct IndexModelData {
     pub models: Vec<ModelData>,
 }
 
+/// Request to list indexed models
+#[derive(Serialize)]
+pub struct ListIndexedModelsRequest {}
+
+/// Response list of indexed models
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ListIndexedModelsResponse {
+    /// List of indexed models
+    pub models: Vec<StreamId>,
+}
+
 /// Response from call to admin api /getCode
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -200,6 +212,13 @@ pub struct AdminApiPayload<T: Serialize> {
 #[serde(rename_all = "camelCase")]
 pub struct AdminApiRequest {
     jws: String,
+}
+
+impl AdminApiRequest {
+    /// JWS Compact Serialization string.
+    pub fn jws(&self) -> &str {
+        self.jws.as_ref()
+    }
 }
 
 impl TryFrom<Jws> for AdminApiRequest {
@@ -332,6 +351,121 @@ pub struct TypedQueryResponse<T> {
 /// Healthcheck request for http api
 #[derive(Serialize)]
 pub struct HealthcheckRequest {}
+
+/// Node status request for http api
+#[derive(Serialize)]
+pub struct NodeStatusRequest {}
+
+/// Node status response for http api
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NodeStatusResponse {
+    /// A random UUID that is generated each time a node starts up.
+    /// Can be used to detect when a node restarts.
+    pub run_id: String,
+    /// How long the node has been running.
+    pub uptime_ms: i64,
+    /// The Ceramic network the node is connected to.
+    pub network: String,
+    /// Information about the anchoring service.
+    pub anchor: AnchorStatus,
+    /// Information about the connected IPFS node.
+    pub ipfs: IpfsStatus,
+    /// Information about the ComposeDB operations.
+    pub compose_db: Option<ComposeDBStatus>,
+}
+
+/// Information about the anchoring service.
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AnchorStatus {
+    /// The URL of the Ceramic Anchor Service used to request anchors.
+    pub anchor_service_url: String,
+    /// The ethereum rpc endpoint used to validate anchor transactions. If null, likely means
+    /// the node is using the default, rate-limited ethereum provider.
+    pub ethereum_rpc_endpoint: Option<String>,
+    /// The ethereum chainId used for anchors.
+    pub chain_id: String,
+}
+
+/// Information about the connected IPFS node.
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct IpfsStatus {
+    /// PeerId of the connected ipfs node
+    pub peer_id: String,
+    /// IPFS Swarm multiaddrs of the connected ipfs node
+    pub addresses: Vec<String>,
+}
+
+/// Status about the ComposeDB specific operations of the node.
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ComposeDBStatus {
+    /// The list of models Ids that are being indexed.
+    pub indexed_models: Vec<String>,
+    /// The set of active sync operations.
+    pub syncs: Option<SyncStatus>,
+}
+
+/// Status of all sync operations.
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SyncStatus {
+    /// Status of currently active sync operations.
+    pub active_syncs: Vec<ActiveSyncStatus>,
+    /// Status of continuously running sync operations.
+    pub continuous_sync: Vec<ContinuousSyncStatus>,
+    /// Status of pending sync operations.
+    pub pending_syncs: Vec<PendingSyncStatus>,
+}
+
+/// Status of currently active sync operations.
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ActiveSyncStatus {
+    /// The block the sync starts at
+    pub start_block: i32,
+    /// The block the sync is currently processing
+    pub current_block: i32,
+    /// The block the sync will end on
+    pub end_block: i32,
+    /// Models that are being synced
+    pub models: Vec<StreamId>,
+    /// Date when the sync was requested
+    pub created_at: String,
+    /// Date when the sync started
+    pub started_at: String,
+}
+
+/// Status of continuously running sync operations.
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ContinuousSyncStatus {
+    /// The first block recevied form the chain on node startup
+    pub start_block: i32,
+    /// The latest block received from the chain
+    pub latest_block: i32,
+    /// The number of blocks we wait for before we process a block
+    pub confirmations: i32,
+    /// The block we are currently processing (should be latestBlock - confirmations)
+    pub current_block: i32,
+    /// Models that are being synced
+    pub models: Vec<StreamId>,
+}
+/// Status of pending sync operations.
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PendingSyncStatus {
+    /// The block the sync starts at
+    pub start_block: i32,
+    /// The block the sync will end on
+    pub end_block: i32,
+    /// Models that are being synced
+    pub models: Vec<StreamId>,
+    /// Date when the sync was requested
+    pub created_at: String,
+}
 
 #[cfg(test)]
 mod tests {

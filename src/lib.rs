@@ -65,10 +65,19 @@ impl<S: Signer> CeramicHttpClient<S> {
     pub fn index_endpoint(&self) -> &'static str {
         "/api/v0/admin/modelData"
     }
+    /// Get the models endpoint
+    pub fn models_endpoint(&self) -> &'static str {
+        "/api/v0/admin/models"
+    }
 
     /// Get the healthcheck endpoint
     pub fn healthcheck_endpoint(&self) -> &'static str {
         "/api/v0/node/healthcheck"
+    }
+
+    /// Get the status endpoint
+    pub fn node_status_endpoint(&self) -> &'static str {
+        "/api/v0/admin/status"
     }
 
     /// Create a serde compatible request for model creation
@@ -112,6 +121,21 @@ impl<S: Signer> CeramicHttpClient<S> {
         let req = api::AdminApiPayload {
             code: code.to_string(),
             request_path: self.index_endpoint().to_string(),
+            request_body: data,
+        };
+        let jws = Jws::for_data(&self.signer, &req).await?;
+        api::AdminApiRequest::try_from(jws)
+    }
+
+    /// Create a serde compatible request for listing indexed models
+    pub async fn create_list_indexed_models_request(
+        &self,
+        code: &str,
+    ) -> anyhow::Result<api::AdminApiRequest> {
+        let data = api::ListIndexedModelsRequest {};
+        let req = api::AdminApiPayload {
+            code: code.to_string(),
+            request_path: self.models_endpoint().to_string(),
             request_body: data,
         };
         let jws = Jws::for_data(&self.signer, &req).await?;
@@ -249,6 +273,20 @@ impl<S: Signer> CeramicHttpClient<S> {
     pub async fn create_healthcheck_request(&self) -> anyhow::Result<api::HealthcheckRequest> {
         Ok(api::HealthcheckRequest {})
     }
+    /// Create a serde compatible request for the node status
+    pub async fn create_node_status_request(
+        &self,
+        code: &str,
+    ) -> anyhow::Result<api::AdminApiRequest> {
+        let data = api::NodeStatusRequest {};
+        let req = api::AdminApiPayload {
+            code: code.to_string(),
+            request_path: self.node_status_endpoint().to_string(),
+            request_body: data,
+        };
+        let jws = Jws::for_data(&self.signer, &req).await?;
+        api::AdminApiRequest::try_from(jws)
+    }
 }
 
 /// Remote HTTP Functionality
@@ -327,6 +365,33 @@ pub mod remote {
             } else {
                 anyhow::bail!("{}", resp.text().await?);
             }
+        }
+
+        /// List indexed models on the remote ceramic
+        pub async fn list_indexed_models(&self) -> anyhow::Result<api::ListIndexedModelsResponse> {
+            let resp: api::AdminCodeResponse = self
+                .remote
+                .get(self.url_for_path(self.cli.admin_code_endpoint())?)
+                .send()
+                .await?
+                .json()
+                .await?;
+            let req = self
+                .cli
+                .create_list_indexed_models_request(&resp.code)
+                .await?;
+            let resp = self
+                .remote
+                .get(self.url_for_path(self.cli.models_endpoint())?)
+                .header(
+                    reqwest::header::AUTHORIZATION,
+                    format!("Basic {}", req.jws()),
+                )
+                .send()
+                .await?
+                .json()
+                .await?;
+            Ok(resp)
         }
 
         /// Create an instance of a model that allows a single instance on the remote ceramic
@@ -484,6 +549,30 @@ pub mod remote {
                 .send()
                 .await?
                 .text()
+                .await?;
+            Ok(resp)
+        }
+
+        /// Get the node status
+        pub async fn node_status(&self) -> anyhow::Result<api::NodeStatusResponse> {
+            let resp: api::AdminCodeResponse = self
+                .remote
+                .get(self.url_for_path(self.cli.admin_code_endpoint())?)
+                .send()
+                .await?
+                .json()
+                .await?;
+            let req = self.cli.create_node_status_request(&resp.code).await?;
+            let resp = self
+                .remote
+                .get(self.url_for_path(self.cli.node_status_endpoint())?)
+                .header(
+                    reqwest::header::AUTHORIZATION,
+                    format!("Basic {}", req.jws()),
+                )
+                .send()
+                .await?
+                .json()
                 .await?;
             Ok(resp)
         }
