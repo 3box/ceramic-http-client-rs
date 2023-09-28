@@ -87,6 +87,15 @@ impl ModelDefinition {
     ) -> anyhow::Result<Self> {
         let schema = T::root_schema();
         let schema = serde_json::to_value(&schema)?;
+        Self::new_for_value(name, account_relation, schema)
+    }
+
+    /// Create a new definition from schema that is already json
+    pub fn new_for_value(
+        name: &str,
+        account_relation: ModelAccountRelation,
+        schema: serde_json::Value,
+    ) -> anyhow::Result<Self> {
         Ok(Self {
             version: "1.0",
             name: name.to_string(),

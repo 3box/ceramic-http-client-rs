@@ -9,7 +9,7 @@ mod model_definition;
 mod query;
 
 use ceramic_event::{
-    Base64String, Cid, DagCborEncoded, EventArgs, Jws, MultiBase36String, Signer, StreamId,
+    Base64String, Cid, DeterministicInitEvent, EventArgs, Jws, MultiBase36String, Signer, StreamId,
     StreamIdType,
 };
 use serde::Serialize;
@@ -17,6 +17,7 @@ use std::str::FromStr;
 
 use crate::api::ModelData;
 pub use ceramic_event;
+pub use json_patch;
 pub use model_definition::{
     GetRootSchema, ModelAccountRelation, ModelDefinition, ModelRelationDefinition,
     ModelViewDefinition,
@@ -146,12 +147,12 @@ impl<S: Signer> CeramicHttpClient<S> {
     pub async fn create_single_instance_request(
         &self,
         model_id: &StreamId,
-    ) -> anyhow::Result<api::CreateRequest<DagCborEncoded>> {
+    ) -> anyhow::Result<api::CreateRequest<DeterministicInitEvent>> {
         if !model_id.is_model() {
             anyhow::bail!("StreamId was not a model");
         }
         let args = EventArgs::new_with_parent(&self.signer, model_id);
-        let commit = args.init()?;
+        let _commit = args.init()?;
         let controllers: Vec<_> = args.controllers().map(|c| c.id.clone()).collect();
         let model = Base64String::from(model_id.to_vec()?);
         Ok(api::CreateRequest {
@@ -164,7 +165,7 @@ impl<S: Signer> CeramicHttpClient<S> {
                 },
                 linked_block: None,
                 jws: None,
-                data: Some(commit.encoded),
+                data: None,
                 cacao_block: None,
             },
         })
@@ -587,7 +588,7 @@ pub mod tests {
     use crate::model_definition::{GetRootSchema, ModelAccountRelation, ModelDefinition};
     use crate::query::{FilterQuery, OperationFilter};
     use ceramic_event::{DidDocument, JwkSigner};
-    use json_patch::ReplaceOperation;
+    use json_patch::{AddOperation, ReplaceOperation};
     use schemars::JsonSchema;
     use serde::{Deserialize, Serialize};
     use std::collections::HashMap;
@@ -629,6 +630,11 @@ pub mod tests {
         cli.create_model(&model).await.unwrap()
     }
 
+    pub async fn create_single_model(cli: &CeramicRemoteHttpClient<JwkSigner>) -> StreamId {
+        let model = ModelDefinition::new::<Ball>("TestBall", ModelAccountRelation::Single).unwrap();
+        cli.create_model(&model).await.unwrap()
+    }
+
     #[tokio::test]
     async fn should_create_model() {
         let ceramic = CeramicRemoteHttpClient::new(signer().await, ceramic_url());
@@ -636,12 +642,48 @@ pub mod tests {
         ceramic.create_model(&model).await.unwrap();
     }
 
-    // #[tokio::test]
-    // async fn should_create_single_instance() {
-    //     let ceramic = CeramicRemoteHttpClient::new(did(), &did_private_key(), ceramic_url());
-    //     let model = create_model(&ceramic).await;
-    //     ceramic.create_single_instance(&model).await.unwrap();
-    // }
+    #[tokio::test]
+    async fn should_create_single_instance() {
+        let ceramic = CeramicRemoteHttpClient::new(signer().await, ceramic_url());
+        let model = create_single_model(&ceramic).await;
+        ceramic.create_single_instance(&model).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn should_create_and_update_single_instance() {
+        let ceramic = CeramicRemoteHttpClient::new(signer().await, ceramic_url());
+        let model = create_single_model(&ceramic).await;
+        let stream_id = ceramic.create_single_instance(&model).await.unwrap();
+
+        tokio::time::sleep(Duration::from_secs(1)).await;
+
+        let patch = json_patch::Patch(vec![
+            json_patch::PatchOperation::Add(AddOperation {
+                path: "/creator".to_string(),
+                value: serde_json::Value::String(ceramic.client().signer().id().id.clone()),
+            }),
+            json_patch::PatchOperation::Add(AddOperation {
+                path: "/radius".to_string(),
+                value: serde_json::Value::Number(serde_json::Number::from(1)),
+            }),
+            json_patch::PatchOperation::Add(AddOperation {
+                path: "/red".to_string(),
+                value: serde_json::Value::Number(serde_json::Number::from(2)),
+            }),
+            json_patch::PatchOperation::Add(AddOperation {
+                path: "/green".to_string(),
+                value: serde_json::Value::Number(serde_json::Number::from(3)),
+            }),
+            json_patch::PatchOperation::Add(AddOperation {
+                path: "/blue".to_string(),
+                value: serde_json::Value::Number(serde_json::Number::from(4)),
+            }),
+        ]);
+        let post_resp = ceramic.update(&model, &stream_id, patch).await.unwrap();
+        assert_eq!(post_resp.stream_id, stream_id);
+        let post_resp: Ball = serde_json::from_value(post_resp.state.unwrap().content).unwrap();
+        assert_eq!(post_resp.red, 2);
+    }
 
     #[tokio::test]
     async fn should_create_and_update_list() {
@@ -795,5 +837,119 @@ pub mod tests {
             .await
             .unwrap();
         assert_eq!(res.edges.len(), 1);
+        let node = &res.edges[0].node;
+        let result: Ball = serde_json::from_value(node.content.clone()).unwrap();
+        assert_eq!(result.blue, 5);
+    }
+
+    #[tokio::test]
+    async fn should_query_models_after_update() {
+        let ceramic = CeramicRemoteHttpClient::new(signer().await, ceramic_url());
+        let model = create_model(&ceramic).await;
+        ceramic.index_model(&model).await.unwrap();
+        let _instance1 = ceramic
+            .create_list_instance(
+                &model,
+                &Ball {
+                    creator: ceramic.client().signer().id().id.clone(),
+                    radius: 1,
+                    red: 2,
+                    green: 3,
+                    blue: 4,
+                },
+            )
+            .await
+            .unwrap();
+
+        let instance2 = ceramic
+            .create_list_instance(
+                &model,
+                &Ball {
+                    creator: ceramic.client().signer().id().id.clone(),
+                    radius: 2,
+                    red: 3,
+                    green: 4,
+                    blue: 5,
+                },
+            )
+            .await
+            .unwrap();
+
+        //give anchor time to complete
+        tokio::time::sleep(Duration::from_secs(1)).await;
+
+        let replace = Ball {
+            creator: ceramic.client().signer().id().id.clone(),
+            radius: 1,
+            red: 0,
+            green: 3,
+            blue: 10,
+        };
+        let post_resp = ceramic.replace(&model, &instance2, &replace).await.unwrap();
+        assert_eq!(post_resp.stream_id, instance2);
+
+        //give anchor time to complete
+        tokio::time::sleep(Duration::from_secs(1)).await;
+
+        let mut where_filter = HashMap::new();
+        where_filter.insert("blue".to_string(), OperationFilter::EqualTo(10.into()));
+        let filter = FilterQuery::Where(where_filter);
+        let res = ceramic
+            .query(&model, Some(filter), Pagination::default())
+            .await
+            .unwrap();
+        assert_eq!(res.edges.len(), 1);
+        let node = &res.edges[0].node;
+        let result: Ball = serde_json::from_value(node.content.clone()).unwrap();
+        assert_eq!(result.blue, 10);
+    }
+
+    #[tokio::test]
+    async fn should_create_and_repeatedly_update_list() {
+        let ceramic = CeramicRemoteHttpClient::new(signer().await, ceramic_url());
+        let model = create_model(&ceramic).await;
+        let stream_id = ceramic
+            .create_list_instance(
+                &model,
+                &Ball {
+                    creator: ceramic.client().signer().id().id.clone(),
+                    radius: 1,
+                    red: 2,
+                    green: 3,
+                    blue: 4,
+                },
+            )
+            .await
+            .unwrap();
+
+        for i in 0..100 {
+            //give anchor time to complete
+            tokio::time::sleep(Duration::from_millis(100)).await;
+
+            let replace_value = rand::random::<i32>() % 10i32;
+            let patch = json_patch::Patch(vec![json_patch::PatchOperation::Replace(
+                ReplaceOperation {
+                    path: "/red".to_string(),
+                    value: serde_json::json!(replace_value),
+                },
+            )]);
+            let post_resp = ceramic.update(&model, &stream_id, patch).await.unwrap();
+            assert_eq!(post_resp.stream_id, stream_id);
+            let post_resp: Ball = serde_json::from_value(post_resp.state.unwrap().content).unwrap();
+            assert_eq!(
+                post_resp.red, replace_value,
+                "Failed to return expected value on iteration {}",
+                i
+            );
+
+            let get_resp: Ball = ceramic.get_as(&stream_id).await.unwrap();
+            assert_eq!(get_resp.red, replace_value);
+            assert_eq!(get_resp.blue, 4);
+            assert_eq!(
+                get_resp, post_resp,
+                "Failed to retrieve expected value on iteration {}",
+                i
+            );
+        }
     }
 }

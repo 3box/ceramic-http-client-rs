@@ -25,7 +25,7 @@ pub struct BlockData<T: Serialize> {
     /// Header for block
     pub header: BlockHeader,
     /// Data for block
-    #[serde(skip_serializing_if = "Option::is_none")]
+    //#[serde(skip_serializing_if = "Option::is_none")]
     pub data: Option<T>,
     /// Signature for block
     #[serde(skip_serializing_if = "Option::is_none")]

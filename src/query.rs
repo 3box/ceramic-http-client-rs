@@ -1,8 +1,8 @@
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
 /// Valid values for operation Filter
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(untagged)]
 pub enum NumberFilter {
     /// I64 Value
@@ -40,7 +40,7 @@ impl From<f32> for NumberFilter {
 }
 
 /// Valid values for operation Filter
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(untagged)]
 pub enum ValueFilter {
     /// String value
@@ -86,7 +86,7 @@ impl From<f32> for ValueFilter {
 }
 
 /// Valid values for operation Filter
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(untagged)]
 pub enum EqualValueFilter {
     /// Boolean value
@@ -138,7 +138,7 @@ impl From<f32> for EqualValueFilter {
 }
 
 /// Operation Filter
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub enum OperationFilter {
     /// Filter by null or not null
@@ -162,7 +162,7 @@ pub enum OperationFilter {
 }
 
 /// Combination query
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct CombinationQuery(Vec<FilterQuery>);
 
 impl CombinationQuery {
@@ -189,7 +189,7 @@ macro_rules! or {
 }
 
 /// Filter Query
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 pub enum FilterQuery {
     /// Filter by where
     #[serde(rename = "where")]
