@@ -614,11 +614,12 @@ pub mod tests {
 
     pub async fn signer() -> JwkSigner {
         let s = std::env::var("DID_DOCUMENT").unwrap_or_else(|_| {
-            "did:key:z6MkeqCTPhHPVg3HaAAtsR7vZ6FXkAHPXEbTJs7Y4CQABV9Z".to_string()
+            "did:key:z6Mkhg2KnCbDyN8XoTTUXB9zxb3CGvucHdyycASR9WHoQWhT".to_owned()
         });
         JwkSigner::new(
             DidDocument::new(&s),
-            &std::env::var("DID_PRIVATE_KEY").unwrap(),
+            &std::env::var("DID_PRIVATE_KEY").unwrap_or_else(|_| 
+                "28cf908fac487b64ec2a2c71dd32bff721b8ce537e8a9a50d454c1f5e6a8bb0e".to_owned())
         )
         .await
         .unwrap()
