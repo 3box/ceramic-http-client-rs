@@ -25,7 +25,7 @@ pub struct BlockData<T: Serialize> {
     /// Header for block
     pub header: BlockHeader,
     /// Data for block
-    //#[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub data: Option<T>,
     /// Signature for block
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -313,7 +313,8 @@ pub struct PageInfo {
     /// Whether previous page exists
     pub has_previous_page: bool,
     /// Cursor for next page
-    pub end_cursor: Base64UrlString,
+    #[serde(default)]
+    pub end_cursor: Option<Base64UrlString>,
     /// Cursor for previous page
     pub start_cursor: Base64UrlString,
 }
