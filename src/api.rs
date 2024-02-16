@@ -313,7 +313,8 @@ pub struct PageInfo {
     /// Whether previous page exists
     pub has_previous_page: bool,
     /// Cursor for next page
-    pub end_cursor: Base64UrlString,
+    #[serde(default)]
+    pub end_cursor: Option<Base64UrlString>,
     /// Cursor for previous page
     pub start_cursor: Base64UrlString,
 }
