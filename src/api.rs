@@ -316,7 +316,8 @@ pub struct PageInfo {
     #[serde(default)]
     pub end_cursor: Option<Base64UrlString>,
     /// Cursor for previous page
-    pub start_cursor: Base64UrlString,
+    #[serde(default)]
+    pub start_cursor: Option<Base64UrlString>,
 }
 
 /// Response to query
@@ -497,5 +498,14 @@ mod tests {
             &json,
             r#"{"model":"kjzl6hvfrbw6c8apa5yce6ah3fsz9sgrh6upniy0tz8z76gdm169ds3tf8c051t","account":"test","queryFilters":{"where":{"id":{"equalTo":"1"}}},"first":100}"#
         );
+    }
+
+    #[test]
+    fn should_deserialize_empty_result() {
+        let res: QueryResponse = serde_json::from_str(
+            r#"{"edges":[],"pageInfo":{"hasNextPage":false,"hasPreviousPage":false}}"#,
+        )
+        .unwrap();
+        assert!(res.edges.is_empty());
     }
 }
