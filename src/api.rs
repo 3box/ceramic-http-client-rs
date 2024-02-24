@@ -325,9 +325,11 @@ pub struct PageInfo {
 #[serde(rename_all = "camelCase")]
 pub struct QueryResponse {
     /// Edges of query
+    #[serde(default)]
     pub edges: Vec<QueryEdge>,
     /// Pagination info
-    pub page_info: PageInfo,
+    #[serde(default)]
+    pub page_info: Option<PageInfo>,
 }
 
 /// Typed response to query
@@ -347,7 +349,8 @@ pub struct TypedQueryResponse<T> {
     /// Documents from query
     pub documents: Vec<TypedQueryDocument<T>>,
     /// Pagination info
-    pub page_info: PageInfo,
+    #[serde(default)]
+    pub page_info: Option<PageInfo>,
 }
 
 /// Healthcheck request for http api
