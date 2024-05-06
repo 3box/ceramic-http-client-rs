@@ -14,7 +14,7 @@ publish = false
 [dependencies]
 anyhow = "1"
 ceramic-event = { git = "https://github.com/ceramicnetwork/rust-ceramic", branch = "feat/wasi" }
-json-patch = { version = "1.2.0", features = ["diff"] }
+json-patch = { version = "2.0.0", features = ["diff"] }
 reqwest = { version = "0.11.14", features = ["json"], optional = true }
 schemars = "0.8.12"
 serde = { version = "1.0", features = ["derive"] }
