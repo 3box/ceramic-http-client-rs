@@ -3,8 +3,18 @@ use ceramic_event::{
     Base64String, Base64UrlString, Jws, MultiBase32String, MultiBase36String, StreamId,
     StreamIdType,
 };
+use once_cell::sync::Lazy;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use std::str::FromStr;
+
+/// Separator used for model and MID
+pub const SEP: &str = "model";
+
+/// All models have this model StreamId, while all documents have the model stream id of the model
+/// they use
+pub static PARENT_STREAM_ID: Lazy<StreamId> =
+    Lazy::new(|| StreamId::from_str("kh4q0ozorrgaq2mezktnrmdwleo1d").unwrap());
 
 /// Header for block data
 #[derive(Debug, Serialize)]
