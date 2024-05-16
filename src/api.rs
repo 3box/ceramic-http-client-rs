@@ -1,7 +1,7 @@
-use crate::query::FilterQuery;
+use crate::{jws::Jws, query::FilterQuery};
 use ceramic_event::{
-    Base64String, Base64UrlString, Jws, MultiBase32String, MultiBase36String, StreamId,
-    StreamIdType,
+    unvalidated::signed, Base64String, Base64UrlString, MultiBase32String, MultiBase36String,
+    StreamId, StreamIdType,
 };
 use once_cell::sync::Lazy;
 use serde::{Deserialize, Serialize};
@@ -39,7 +39,7 @@ pub struct BlockData<T: Serialize> {
     pub data: Option<T>,
     /// Signature for block
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub jws: Option<Jws>,
+    pub jws: Option<signed::Envelope>,
     /// IPFS Linked Block
     #[serde(skip_serializing_if = "Option::is_none")]
     pub linked_block: Option<Base64String>,

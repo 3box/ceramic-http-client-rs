@@ -5,14 +5,18 @@
 #![deny(missing_docs)]
 /// Structures for working with ceramic http api
 pub mod api;
+mod jws;
 mod model_definition;
 mod query;
 
 use ceramic_event::{
-    event_builder::*,
-    unvalidated::{self, IntoSignedCeramicEvent},
-    Base64String, Cid, EventBytes, Jws, MultiBase36String, Signer, StreamId, StreamIdType,
+    unvalidated::{
+        signed::{Event, Signer},
+        Builder,
+    },
+    Base64String, Cid, MultiBase36String, StreamId, StreamIdType,
 };
+use jws::Jws;
 use serde::Serialize;
 use std::str::FromStr;
 
@@ -90,20 +94,17 @@ impl<S: Signer + Sync> CeramicHttpClient<S> {
         model: &ModelDefinition,
     ) -> anyhow::Result<api::CreateRequest<Base64String>> {
         let controller = self.signer.id().id.clone();
-        let parent: EventBytes = PARENT_STREAM_ID.to_vec()?.into();
-        let commit = Builder::default()
-            .with_sep(SEP.to_string())
-            .with_additional(SEP.to_string(), parent.into())
-            .init()
+        let parent = PARENT_STREAM_ID.to_vec();
+        let commit = Builder::init()
             .with_controller(controller.clone())
-            .with_data(&model)
-            .build()
-            .await?;
-        let commit: unvalidated::Payload<_> = commit.into();
-        let commit = commit.signed(&self.signer).await?;
+            .with_sep(SEP.to_string(), parent)
+            .with_data(model)
+            .build();
+        let event = Event::from_payload(commit.into(), &self.signer)?;
         let controllers: Vec<_> = vec![controller];
-        let data = Base64String::from(commit.linked_block.as_ref());
-        let model = Base64String::from(PARENT_STREAM_ID.to_vec()?);
+        let data = Base64String::from(event.encode_payload()?);
+        let model = Base64String::from(PARENT_STREAM_ID.to_vec());
+        let (envelope, _payload) = event.into_parts();
 
         Ok(api::CreateRequest {
             r#type: StreamIdType::Model,
@@ -114,7 +115,7 @@ impl<S: Signer + Sync> CeramicHttpClient<S> {
                     model,
                 },
                 linked_block: Some(data.clone()),
-                jws: Some(commit.jws),
+                jws: Some(envelope),
                 data: Some(data),
                 cacao_block: None,
             },
@@ -122,7 +123,7 @@ impl<S: Signer + Sync> CeramicHttpClient<S> {
     }
 
     /// Create a serde compatible request for model indexing
-    pub async fn create_index_model_request(
+    pub fn create_index_model_request(
         &self,
         model_id: &StreamId,
         code: &str,
@@ -137,12 +138,12 @@ impl<S: Signer + Sync> CeramicHttpClient<S> {
             request_path: self.index_endpoint().to_string(),
             request_body: data,
         };
-        let jws = Jws::builder(&self.signer).build_for_data(&req).await?;
+        let jws = Jws::builder(&self.signer).build_for_data(&req)?;
         api::AdminApiRequest::try_from(jws)
     }
 
     /// Create a serde compatible request for listing indexed models
-    pub async fn create_list_indexed_models_request(
+    pub fn create_list_indexed_models_request(
         &self,
         code: &str,
     ) -> anyhow::Result<api::AdminApiRequest> {
@@ -152,12 +153,12 @@ impl<S: Signer + Sync> CeramicHttpClient<S> {
             request_path: self.models_endpoint().to_string(),
             request_body: data,
         };
-        let jws = Jws::builder(&self.signer).build_for_data(&req).await?;
+        let jws = Jws::builder(&self.signer).build_for_data(&req)?;
         api::AdminApiRequest::try_from(jws)
     }
 
     /// Create a serde compatible request for a single instance per account creation of a model
-    pub async fn create_single_instance_request(
+    pub fn create_single_instance_request(
         &self,
         model_id: &StreamId,
     ) -> anyhow::Result<api::CreateRequest<()>> {
@@ -165,7 +166,7 @@ impl<S: Signer + Sync> CeramicHttpClient<S> {
             anyhow::bail!("StreamId was not a model");
         }
         let controllers: Vec<_> = vec![self.signer.id().id.clone()];
-        let model = Base64String::from(model_id.to_vec()?);
+        let model = Base64String::from(model_id.to_vec());
         Ok(api::CreateRequest {
             r#type: StreamIdType::ModelInstanceDocument,
             block: api::BlockData {
@@ -201,25 +202,20 @@ impl<S: Signer + Sync> CeramicHttpClient<S> {
         if !model_id.is_model() {
             anyhow::bail!("StreamId was not a model");
         }
-        let model_vec = model_id.to_vec()?;
+        let model_vec = model_id.to_vec();
         let model = Base64String::from(model_vec.as_slice());
-        let model_bytes = EventBytes::from(model_vec);
-        let unique = Self::gen_rand_bytes::<12>();
-        let unique: EventBytes = unique.to_vec().into();
+        let unique = Self::gen_rand_bytes::<12>().to_vec();
         let controller = self.signer.id().id.clone();
-        let commit = Builder::default()
-            .with_sep(SEP.to_string())
-            .with_additional(SEP.to_string(), model_bytes.into())
-            .with_additional("unique".to_string(), unique.into())
-            .init()
+        let commit = Builder::init()
             .with_controller(controller.clone())
+            .with_sep(SEP.to_string(), model_vec)
+            .with_unique(unique)
             .with_data(data)
-            .build()
-            .await?;
-        let commit: unvalidated::Payload<_> = commit.into();
-        let commit = commit.signed(&self.signer).await?;
+            .build();
+        let event = Event::from_payload(commit.into(), &self.signer)?;
         let controllers: Vec<_> = vec![controller];
-        let data = Base64String::from(commit.linked_block.as_ref());
+        let data = Base64String::from(event.encode_payload()?);
+        let (envelope, _payload) = event.into_parts();
 
         Ok(api::CreateRequest {
             r#type: StreamIdType::ModelInstanceDocument,
@@ -230,7 +226,7 @@ impl<S: Signer + Sync> CeramicHttpClient<S> {
                     model,
                 },
                 linked_block: Some(data.clone()),
-                jws: Some(commit.jws),
+                jws: Some(envelope),
                 data: Some(data),
                 cacao_block: None,
             },
@@ -250,17 +246,18 @@ impl<S: Signer + Sync> CeramicHttpClient<S> {
         if let Some(tip) = get.state.as_ref().and_then(|s| s.log.last()) {
             let tip = Cid::from_str(tip.cid.as_ref())?;
             let controller = self.signer.id().id.clone();
-            let model_vec = model.to_vec()?;
+            let model_vec = model.to_vec();
             let model = Base64String::from(model_vec.as_slice());
-            let commit = Builder::default()
-                .data(get.stream_id.cid, tip, patch)
-                .build()
-                .await?;
-            let commit: unvalidated::Payload<_> = commit.into();
-            let commit = commit.signed(&self.signer).await?;
+            let commit = Builder::data()
+                .with_id(get.stream_id.cid)
+                .with_prev(tip)
+                .with_data(patch)
+                .build();
+            let event = Event::from_payload(commit.into(), &self.signer)?;
             let controllers: Vec<_> = vec![controller];
-            let data = Base64String::from(commit.linked_block.as_ref());
+            let data = Base64String::from(event.encode_payload()?);
             let stream = MultiBase36String::try_from(&get.stream_id)?;
+            let (envelope, _payload) = event.into_parts();
             Ok(api::UpdateRequest {
                 r#type: StreamIdType::ModelInstanceDocument,
                 block: api::BlockData {
@@ -270,7 +267,7 @@ impl<S: Signer + Sync> CeramicHttpClient<S> {
                         model,
                     },
                     linked_block: Some(data.clone()),
-                    jws: Some(commit.jws),
+                    jws: Some(envelope),
                     data: Some(data),
                     cacao_block: None,
                 },
@@ -327,7 +324,7 @@ impl<S: Signer + Sync> CeramicHttpClient<S> {
             request_path: self.node_status_endpoint().to_string(),
             request_body: data,
         };
-        let jws = Jws::builder(&self.signer).build_for_data(&req).await?;
+        let jws = Jws::builder(&self.signer).build_for_data(&req)?;
         api::AdminApiRequest::try_from(jws)
     }
 }
@@ -393,10 +390,7 @@ pub mod remote {
                 .await?
                 .json()
                 .await?;
-            let req = self
-                .cli
-                .create_index_model_request(model_id, &resp.code)
-                .await?;
+            let req = self.cli.create_index_model_request(model_id, &resp.code)?;
             let resp = self
                 .remote
                 .post(self.url_for_path(self.cli.index_endpoint())?)
@@ -419,10 +413,7 @@ pub mod remote {
                 .await?
                 .json()
                 .await?;
-            let req = self
-                .cli
-                .create_list_indexed_models_request(&resp.code)
-                .await?;
+            let req = self.cli.create_list_indexed_models_request(&resp.code)?;
             let resp = self
                 .remote
                 .get(self.url_for_path(self.cli.models_endpoint())?)
@@ -442,7 +433,7 @@ pub mod remote {
             &self,
             model_id: &StreamId,
         ) -> anyhow::Result<StreamId> {
-            let req = self.cli.create_single_instance_request(model_id).await?;
+            let req = self.cli.create_single_instance_request(model_id)?;
             let resp: api::StreamsResponseOrError = self
                 .remote
                 .post(self.url_for_path(self.cli.streams_endpoint())?)
@@ -629,7 +620,8 @@ pub mod tests {
     use crate::api::Pagination;
     use crate::model_definition::{GetRootSchema, ModelAccountRelation, ModelDefinition};
     use crate::query::{FilterQuery, OperationFilter};
-    use ceramic_event::{DidDocument, JwkSigner};
+    use ceramic_event::unvalidated::signed::JwkSigner;
+    use ceramic_event::DidDocument;
     use schemars::JsonSchema;
     use serde::{Deserialize, Serialize};
     use std::collections::HashMap;
