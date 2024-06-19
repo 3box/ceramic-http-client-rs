@@ -102,9 +102,9 @@ impl<S: Signer + Sync> CeramicHttpClient<S> {
             .build();
         let event = Event::from_payload(commit.into(), &self.signer)?;
         let controllers: Vec<_> = vec![controller];
+        let jws = Jws::builder(&self.signer).build_for_cid(&event.payload_cid())?;
         let data = Base64String::from(event.encode_payload()?);
         let model = Base64String::from(PARENT_STREAM_ID.to_vec());
-        let (envelope, _payload) = event.into_parts();
 
         Ok(api::CreateRequest {
             r#type: StreamIdType::Model,
@@ -115,7 +115,7 @@ impl<S: Signer + Sync> CeramicHttpClient<S> {
                     model,
                 },
                 linked_block: Some(data.clone()),
-                jws: Some(envelope),
+                jws: Some(jws),
                 data: Some(data),
                 cacao_block: None,
             },
@@ -215,7 +215,7 @@ impl<S: Signer + Sync> CeramicHttpClient<S> {
         let event = Event::from_payload(commit.into(), &self.signer)?;
         let controllers: Vec<_> = vec![controller];
         let data = Base64String::from(event.encode_payload()?);
-        let (envelope, _payload) = event.into_parts();
+        let jws = Jws::builder(&self.signer).build_for_cid(&event.payload_cid())?;
 
         Ok(api::CreateRequest {
             r#type: StreamIdType::ModelInstanceDocument,
@@ -226,7 +226,7 @@ impl<S: Signer + Sync> CeramicHttpClient<S> {
                     model,
                 },
                 linked_block: Some(data.clone()),
-                jws: Some(envelope),
+                jws: Some(jws),
                 data: Some(data),
                 cacao_block: None,
             },
@@ -257,7 +257,7 @@ impl<S: Signer + Sync> CeramicHttpClient<S> {
             let controllers: Vec<_> = vec![controller];
             let data = Base64String::from(event.encode_payload()?);
             let stream = MultiBase36String::try_from(&get.stream_id)?;
-            let (envelope, _payload) = event.into_parts();
+            let jws = Jws::builder(&self.signer).build_for_cid(&event.payload_cid())?;
             Ok(api::UpdateRequest {
                 r#type: StreamIdType::ModelInstanceDocument,
                 block: api::BlockData {
@@ -267,7 +267,7 @@ impl<S: Signer + Sync> CeramicHttpClient<S> {
                         model,
                     },
                     linked_block: Some(data.clone()),
-                    jws: Some(envelope),
+                    jws: Some(jws),
                     data: Some(data),
                     cacao_block: None,
                 },
