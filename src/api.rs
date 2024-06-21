@@ -1,7 +1,6 @@
-use crate::query::FilterQuery;
+use crate::{jws::Jws, query::FilterQuery};
 use ceramic_event::{
-    Base64String, Base64UrlString, Jws, MultiBase32String, MultiBase36String, StreamId,
-    StreamIdType,
+    Base64String, Base64UrlString, MultiBase32String, MultiBase36String, StreamId, StreamIdType,
 };
 use once_cell::sync::Lazy;
 use serde::{Deserialize, Serialize};
