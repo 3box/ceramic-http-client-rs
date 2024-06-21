@@ -16,13 +16,13 @@ use ceramic_event::{
     },
     Base64String, Cid, MultiBase36String, StreamId, StreamIdType,
 };
-use jws::Jws;
 use serde::Serialize;
 use std::str::FromStr;
 
 use crate::api::{ModelData, PARENT_STREAM_ID, SEP};
 pub use ceramic_event;
 pub use json_patch;
+pub use jws::{Jws, JwsBuilder};
 pub use model_definition::{
     GetRootSchema, ModelAccountRelation, ModelDefinition, ModelRelationDefinition,
     ModelViewDefinition,
