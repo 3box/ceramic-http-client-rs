@@ -21,6 +21,7 @@ pub struct JwsBuilder<S> {
 }
 
 impl<S: Signer> JwsBuilder<S> {
+    /// Create a new JwsBuilder with a signer
     pub fn new(signer: S) -> Self {
         Self {
             signer,
@@ -28,22 +29,26 @@ impl<S: Signer> JwsBuilder<S> {
         }
     }
 
+    /// Add additional information to the JWS
     pub fn with_additional(mut self, key: String, value: serde_json::Value) -> Self {
         self.additional.insert(key, value);
         self
     }
 
+    /// Replace the additional information in the JWS
     pub fn replace_additional(mut self, additional: BTreeMap<String, serde_json::Value>) -> Self {
         self.additional = additional;
         self
     }
 
+    /// Build a JWS for a CID. This is used to define a link to other data.
     pub fn build_for_cid(self, cid: &Cid) -> anyhow::Result<Jws> {
         let cid_str = Base64UrlString::from_cid(cid);
         let link = MultiBase32String::try_from(cid)?;
         Jws::new(&self.signer, cid_str, Some(link), self.additional)
     }
 
+    /// Build a JWS for with data as the payload.
     pub fn build_for_data<T: Serialize>(self, input: &T) -> anyhow::Result<Jws> {
         let input = serde_json::to_vec(input)?;
         let input = Base64UrlString::from(input);
